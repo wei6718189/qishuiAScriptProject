@@ -1,0 +1,35 @@
+# AScript 同步忽略规则（类似 .gitignore）
+# 以 # 开头的行为注释，空行忽略
+# 支持的格式：
+#   *.ext       忽略指定扩展名的文件
+#   dirname/    忽略指定目录（含子目录）
+#   filename    忽略指定文件名（精确匹配）
+#   path/to/x   忽略指定相对路径
+
+# ── IDE / 编辑器 ──
+.vscode/
+.idea/
+.gradle/
+.scripts/
+*.iml
+
+# ── 版本控制 ──
+.git/
+.gitignore
+.gitattributes
+
+# ── Python 缓存 ──
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# ── 构建产物 ──
+build/
+dist/
+node_modules/
+
+# ── 系统文件 ──
+.DS_Store
+Thumbs.db
