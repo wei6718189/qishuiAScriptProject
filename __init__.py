@@ -22,15 +22,17 @@ from ascript.ios import action
 # 4. 使用 FindImages.find 方法在屏幕上查找图片
 #    - R.img("douyin.png"): 指定你本地保存的抖音图标文件名
 #    - confidence=0.85: 设置匹配度阈值为 85%
-douyin_icon_position = FindImages.find(R.img("img_1785263403257.png"), confidence=0.85)
+qishuiyinyue_icon_position = FindImages.find(R.img("qishuiyinyue.png"), confidence=0.85)
 
 # 5. 判断是否找到了图标
-if douyin_icon_position:
+if qishuiyinyue_icon_position:
     # 6. 如果找到了，就使用 action.click 方法点击该坐标
     # 取出字典里的坐标
-    pos = douyin_icon_position
+    pos = qishuiyinyue_icon_position
     action.click(pos["center_x"], pos["center_y"])
-    print("成功找到并点击了抖音图标！")
+    print("成功找到并点击了汽水音乐图标！")
 else:
     # 7. 如果没找到，可以在控制台打印信息，方便调试
-    print("未找到抖音图标，请检查图片或屏幕内容。")
+    print("未找到汽水音乐图标，请检查图片或屏幕内容。")
+
+
