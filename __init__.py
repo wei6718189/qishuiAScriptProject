@@ -89,7 +89,7 @@ def init_regions():
 # ============== 阶段一：启动 App ==============
 
 def launch_app() -> bool:
-    """启动汽水音乐 App"""
+    """启动汽水音乐 App（发指令后立即返回，不阻塞，让 skip_splash_ad 能立刻跟上）"""
     log("=" * 50)
     log("阶段一：启动汽水音乐 App")
     try:
@@ -98,8 +98,7 @@ def launch_app() -> bool:
         else:
             ok = app_start(name=APP_NAME)
         if ok:
-            log("App 启动指令已发送，等待加载...")
-            time.sleep(5)  # 给 App 启动预留时间
+            log("App 启动指令已发送，立即开始监控开屏跳过...")
             return True
         else:
             log("App 启动失败，尝试找图点击桌面图标...")
@@ -153,48 +152,42 @@ SPLASH_SKIP_KEYWORDS = [
 ]
 
 
-def skip_splash_ad(timeout=2) -> bool:
+def skip_splash_ad(timeout=5) -> bool:
     """
-    启动 App 后优先跳过开屏广告（开屏广告右上角一般有倒计时 + 跳过按钮）
-    搜索区域：屏幕右上 1/3 区域（跳过按钮一般在右上角）
-    timeout: 最长等待秒数（开屏广告一般 3~5 秒就自己消失，所以默认 5 秒够了）
-    返回: 是否点击了跳过按钮（True=点了，False=没找到）
+    启动 App 后立即检测并跳过开屏广告（paddleocr 精准识别版）
+    使用 Ocr.paddleocr 在右上角小区域精准识别「跳过」文字，识别率高 (~98%)。
+    rect 按屏幕比例动态计算：x:80%~97%, y:6%~10%。
     """
-    log("阶段一B：检测并跳过开屏广告")
+    log("阶段一B：检测并跳过开屏广告（paddleocr 精准识别中...）")
     from ascript.ios.system import screen_size as _ss
     w, h = _ss() or (1080, 1920)
-    # 右上角区域：x 60%~100%，y 0%~15%（开屏跳过按钮通常比"免"字更靠上）
-    region_tr = [int(w * 0.55), 0, w, int(h * 0.2)]
-    # 也全屏兜底扫一次（有些 App 跳过在右下角或底部）
-    region_full = [0, 0, w, h]
-    engine = OCR_ENGINE
+    # 右上角跳过按钮区域（经实测在 x:80%~97%, y:6%~10% 范围）
+    rect_skip = [int(w * 0.80), int(h * 0.06), int(w * 0.97), int(h * 0.10)]
 
     deadline = time.time() + timeout
+    scan_count = 0
+
     while time.time() < deadline:
-        # 1) 先搜右上角（命中率最高）
-        for kw in SPLASH_SKIP_KEYWORDS:
-            try:
-                r = Ocr.find(kw, rect=region_tr, mode=engine)
-                if r:
-                    log(f"  [右上角命中] 开屏跳过按钮: '{r.get('text','')}' 位置({r['center_x']}, {r['center_y']})")
-                    safe_click(r["center_x"], r["center_y"], "开屏跳过(右上角)")
-                    time.sleep(2)
-                    return True
-            except Exception as e:
-                log(f"  开屏跳过 OCR 异常: {e}")
-        # 2) 右上角没命中 → 全屏扫一次兜底（含「跳过」「跳过广告」）
-        for kw in ["跳过", "跳过广告", "点击跳过", "点击跳过广告"]:
-            try:
-                r = Ocr.find(kw, rect=region_full, mode=engine)
-                if r:
-                    log(f"  [全屏命中] 开屏跳过按钮: '{r.get('text','')}' 位置({r['center_x']}, {r['center_y']})")
-                    safe_click(r["center_x"], r["center_y"], "开屏跳过(全屏)")
-                    time.sleep(2)
-                    return True
-            except Exception as e:
-                log(f"  全屏兜底 OCR 异常: {e}")
-        time.sleep(0.8)
-    log("  未检测到开屏跳过按钮（可能无开屏广告，或已自动跳过）")
+        scan_count += 1
+        try:
+            # 核心：paddleocr 精准匹配「跳过」文字
+            results = Ocr.paddleocr(rect=rect_skip, pattern=r"跳过")
+            if results and isinstance(results, list) and len(results) > 0:
+                for item in results:
+                    cx = item.get("center_x", 0)
+                    cy = item.get("center_y", 0)
+                    if cx > 0 and cy > 0:
+                        text = item.get("text", "")
+                        conf = item.get("confidence", 0)
+                        log(f"  [扫描#{scan_count} paddleocr 命中] '{text}' 置信度={conf:.2f} ({cx},{cy})")
+                        action.click(cx, cy)
+                        time.sleep(0.2)
+                        return True
+        except Exception as e:
+            log(f"  扫描#{scan_count} paddleocr 异常: {e}")
+
+        time.sleep(0.1)
+    log(f"  扫描结束（共 {scan_count} 次），未检测到开屏跳过按钮")
     return False
 
 
@@ -381,7 +374,8 @@ def wait_ad_countdown(timeout=30) -> bool:
     """
     log("阶段四：等待广告倒计时结束")
     deadline = time.time() + timeout
-    last_sec = -1
+ 
+      
     continue_count = 0
     MAX_CONTINUE = 5
     while time.time() < deadline:
@@ -554,8 +548,8 @@ def main():
         if not launch_app():
             log("❌ 无法启动汽水音乐 App，脚本终止")
             return
-        # 启动后先跳过开屏广告（右上角倒计时跳过按钮）
-        skip_splash_ad(timeout=10)
+        # 启动后立即跳过开屏广告（高频扫描，不遗漏）
+        skip_splash_ad(timeout=5)
         # 再清理一轮弹窗
         dismiss_popups(max_rounds=5)
         # 主循环：一轮一轮看广告
