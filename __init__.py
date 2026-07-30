@@ -20,9 +20,9 @@ import time
 import traceback
 
 # ============== 基础模块导入 ==============
-from ascript.ios import action
-from ascript.ios.system import R, app_start, app_current, screen_size, notify
-from ascript.ios.screen import Ocr, FindImages, capture
+from ascript.ios import action  # type: ignore
+from ascript.ios.system import R, app_start, screen_size, notify  # type: ignore
+from ascript.ios.screen import Ocr, FindImages  # type: ignore
 
 # ============== 全局配置 ==============
 
@@ -163,7 +163,7 @@ def skip_splash_ad(timeout=5) -> bool:
     rect 按屏幕比例动态计算：x:80%~97%, y:6%~10%。
     """
     log("阶段一B：检测并跳过开屏广告（paddleocr 精准识别中...）")
-    from ascript.ios.system import screen_size as _ss
+    from ascript.ios.system import screen_size as _ss  # type: ignore
     w, h = _ss() or (1080, 1920)
     # 右上角跳过按钮区域（经实测在 x:80%~97%, y:6%~10% 范围）
     rect_skip = [int(w * 0.80), int(h * 0.06), int(w * 0.97), int(h * 0.10)]
@@ -228,7 +228,7 @@ def ocr_find_mid_first(keywords, mode=None):
       - 弹窗按钮（领取奖励 / 继续观看 / 坚持退出）都在屏幕中间
       - 顶部状态栏有「领取成功×」等小字，和弹窗按钮同字会导致 OCR 先命中错按钮
     """
-    from ascript.ios.system import screen_size as _ss
+    from ascript.ios.system import screen_size as _ss  # type: ignore
     w, h = _ss() or (1080, 1920)
     mid_rect = [0, int(h * 0.2), w, int(h * 0.85)]
     engine = mode or OCR_ENGINE
@@ -285,7 +285,7 @@ def close_membership_popup() -> bool:
           不用右滑——右滑会触发 iOS 边缘返回手势把 App 切到后台。
     返回：是否检测到并执行了关闭。
     """
-    from ascript.ios.system import screen_size as _ss
+    from ascript.ios.system import screen_size as _ss  # type: ignore
     w, h = _ss() or (1080, 1920)
     # 用户实测 [56,2435,1223,2676] @ 1284x2778
     # 约为 x:4.4%~95.3%, y:87.7%~96.3%，按屏幕比例动态计算
@@ -317,7 +317,7 @@ def check_and_close_thirdparty_download() -> bool:
     处理：直接点击"完成"关闭该页面，回到汽水音乐。
     返回：是否检测到第三方下载页（True=已点击"完成"尝试关闭）。
     """
-    from ascript.ios.system import screen_size as _ss
+    from ascript.ios.system import screen_size as _ss  # type: ignore
     w, h = _ss() or (1080, 1920)
     # 左上角"完成"按钮区域（用户实测 [29,211,237,315] @ 1284x2778，
     # 约为 x:2%~18%, y:7.5%~11.3%，按屏幕比例动态计算）
@@ -346,7 +346,7 @@ def dismiss_popups(max_rounds=3) -> int:
     """
     log("阶段二：弹窗清理（仅处理续费会员弹窗）")
     handled = 0
-    for rnd in range(max_rounds):
+    for _ in range(max_rounds):
         if close_membership_popup():
             handled += 1
             time.sleep(1.0)
@@ -397,7 +397,7 @@ def wait_for_mian_button(timeout=60, allow_mian=True) -> bool:
         log("阶段三：监测进广告入口（优先'立即解锁/领取'弹窗，其次'免'字）")
     else:
         log("阶段三：监测进广告入口（仅'立即解锁/领取'弹窗，不再找'免'字）")
-    from ascript.ios.system import screen_size as _ss
+    from ascript.ios.system import screen_size as _ss  # type: ignore
     w, h = _ss() or (1080, 1920)
     rect_mian = [int(w * 0.65), int(h * 0.04), int(w * 0.92), int(h * 0.12)]
     rect_unlock = [int(w * 0.029), int(h * 0.52), int(w * 0.981), int(h * 0.982)]
@@ -536,7 +536,7 @@ def check_and_click_continue_watching() -> bool:
     所以只在中间区域检测，绝不在底部/全屏检测。
     返回 True 表示已点击中间的"继续观看"。
     """
-    from ascript.ios.system import screen_size as _ss
+    from ascript.ios.system import screen_size as _ss  # type: ignore
     w, h = _ss() or (1080, 1920)
     # 中间显眼区域（用户实测 [96,706,1184,1889] @ 1284x2778，
     # 约为 x:7.5%~92%, y:25.4%~68%，按屏幕比例动态计算）
@@ -560,7 +560,7 @@ def wait_ad_countdown(timeout=30) -> bool:
     轮询优先级：领取成功 > 更多直播(直播间需关闭) > 秒后可领奖励(仅打印日志)
     """
     log("阶段四：等待广告倒计时结束（支持视频广告 & 直播间广告）")
-    from ascript.ios.system import screen_size as _ss
+    from ascript.ios.system import screen_size as _ss  # type: ignore
     w, h = _ss() or (1080, 1920)
     # 右上角"领取成功"区域（视频广告结束 或 直播间关闭后）
     rect_claim_top = [int(w * 0.55), int(h * 0.03), w, int(h * 0.14)]
@@ -676,7 +676,7 @@ def claim_reward() -> int:
     返回值：1=两步都成功，已进入下一轮广告；0=超时失败
     """
     log("阶段五：领取奖励（确定两步：点领取成功 → 点领取奖励 → 进入下一轮广告）")
-    from ascript.ios.system import screen_size as _ss
+    from ascript.ios.system import screen_size as _ss  # type: ignore
     w, h = _ss() or (1080, 1920)
     # 右上角"领取成功"专属区（倒计时结束标志）
     rect_claim_top = [int(w * 0.55), int(h * 0.03), w, int(h * 0.14)]
