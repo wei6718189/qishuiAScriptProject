@@ -42,6 +42,8 @@ OCR_ENGINE = "vision"       # "vision"(iOS16+原生) / "paddle" / "mlkit"
 REGION_TOP_RIGHT = None     # 运行时根据屏幕尺寸动态计算
 # 全屏区域
 REGION_FULL = None
+# 直播间关闭按钮模板图是否存在（启动时检查一次）
+HAS_LIVE_ROOM_TEMPLATE = False
 
 
 # ============== 工具函数 ==============
@@ -77,13 +79,18 @@ def click_center():
 
 
 def init_regions():
-    """根据屏幕尺寸初始化搜索区域"""
-    global REGION_TOP_RIGHT, REGION_FULL
+    """根据屏幕尺寸初始化搜索区域，并检查资源文件"""
+    global REGION_TOP_RIGHT, REGION_FULL, HAS_LIVE_ROOM_TEMPLATE
     w, h = screen_size() or (1080, 1920)
     log(f"屏幕尺寸: {w} x {h}")
     # 右上角区域：x 从 60%~100%，y 从 0%~20%
     REGION_TOP_RIGHT = [int(w * 0.6), 0, w, int(h * 0.2)]
     REGION_FULL = [0, 0, w, h]
+    # 检查直播间关闭按钮模板图是否存在
+    import os as _os
+    template_path = R.img("img_zhibojian-close01.png")
+    HAS_LIVE_ROOM_TEMPLATE = _os.path.exists(template_path)
+    log(f"直播间关闭按钮模板图: {'✅ 存在 ' + template_path if HAS_LIVE_ROOM_TEMPLATE else '❌ 不存在（将使用 OCR 兜底方案）'}")
 
 
 # ============== 阶段一：启动 App ==============
@@ -596,44 +603,42 @@ def wait_ad_countdown(timeout=30) -> bool:
         more_live_hit = paddle_find_first(r"更多直播", rect_more_live, "直播间识别")
         if more_live_hit:
             log(f"  命中'更多直播' → 确认在直播间内，尝试点击关闭按钮...")
-            # 尝试用 FindImages 匹配关闭按钮模板图
-            try:
-                from ascript.ios.screen import FindImages
-                from ascript.ios.system import R
-                template_path = R.img("auto/img_zhibojian-close01.png")
-                result = FindImages.find(template_path, rect=rect_close_btn)
-                if result:
-                    cx = result.get("center_x", 0)
-                    cy = result.get("center_y", 0)
-                    conf = result.get("confidence", 0)
-                    log(f"  匹配到关闭按钮 (置信度={conf:.2f}) @ ({cx},{cy}) → 点击关闭直播间")
-                    safe_click(cx, cy, f"直播间关闭按钮(置信度={conf:.2f})")
-                    time.sleep(1.5)
-                    log(f"  已点击关闭按钮，继续等待'领取成功'出现...")
-                    continue  # 关闭后继续循环，等待领取成功出现
-                else:
-                    log(f"  未匹配到关闭按钮模板图，尝试用 OCR 兜底识别 × 关闭...")
-                    # OCR 兜底：在关闭按钮区域找 "×" 或 "✕" 或 "✖"
-                    close_hit = paddle_find_first(r"[×✕✖]", rect_close_btn, "关闭按钮OCR兜底")
-                    if close_hit:
-                        cx = close_hit.get("center_x", 0)
-                        cy = close_hit.get("center_y", 0)
-                        log(f"  OCR 兜底命中关闭符号 @ ({cx},{cy}) → 点击")
-                        safe_click(cx, cy, "关闭按钮(OCR兜底)")
+            close_clicked = False
+            
+            # 优先：使用 FindImages 匹配关闭按钮模板图（如果模板存在）
+            if HAS_LIVE_ROOM_TEMPLATE:
+                try:
+                    template_path = R.img("img_zhibojian-close01.png")
+                    result = FindImages.find(template_path, rect=rect_close_btn)
+                    if result:
+                        cx = result.get("center_x", 0)
+                        cy = result.get("center_y", 0)
+                        conf = result.get("confidence", 0)
+                        log(f"  FindImages 匹配到关闭按钮 (置信度={conf:.2f}) @ ({cx},{cy}) → 点击")
+                        safe_click(cx, cy, f"直播间关闭按钮(模板匹配,置信度={conf:.2f})")
                         time.sleep(1.5)
-                        log(f"  已点击关闭按钮（OCR兜底），继续等待'领取成功'出现...")
-                        continue
-                    else:
-                        log(f"  兜底方案也未找到关闭按钮，本轮跳过")
-            except Exception as e:
-                log(f"  FindImages 匹配异常: {e}，尝试 OCR 兜底")
-                close_hit = paddle_find_first(r"[×✕✖]", rect_close_btn, "关闭按钮OCR兜底")
+                        log(f"  已点击关闭按钮（模板匹配），继续等待'领取成功'出现...")
+                        close_clicked = True
+                except Exception as e:
+                    log(f"  FindImages 匹配异常: {e}，改用 OCR 方案")
+            
+            # 兜底：使用 OCR 在关闭按钮区域识别 × 符号
+            if not close_clicked:
+                log(f"  使用 OCR 兜底识别关闭按钮...")
+                close_hit = paddle_find_first(r"[×✕✖]", rect_close_btn, "关闭按钮OCR")
                 if close_hit:
                     cx = close_hit.get("center_x", 0)
                     cy = close_hit.get("center_y", 0)
-                    safe_click(cx, cy, "关闭按钮(OCR兜底)")
+                    log(f"  OCR 命中关闭符号 @ ({cx},{cy}) → 点击")
+                    safe_click(cx, cy, "关闭按钮(OCR)")
                     time.sleep(1.5)
-                    continue
+                    log(f"  已点击关闭按钮（OCR），继续等待'领取成功'出现...")
+                    close_clicked = True
+            
+            if close_clicked:
+                continue  # 关闭后继续循环，等待领取成功出现
+            else:
+                log(f"  未找到关闭按钮，本轮跳过")
 
         # ========== 3) 最低优先：倒计时文案 → 仅打印日志 ==========
         cd_hit = paddle_find_first(r"秒后可领奖励", rect_countdown, "倒计时")
