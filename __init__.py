@@ -546,32 +546,96 @@ def check_and_click_continue_watching() -> bool:
 def wait_ad_countdown(timeout=30) -> bool:
     """
     阶段四：在广告界面等待倒计时结束。
-    用户已简化业务链 → 本函数只做一件事：轮询等右上角出现"领取成功"。
-      - 检测到"秒后可领奖励" → 仅打印日志（不做任何动作）
-      - 检测到"领取成功"出现（倒计时结束标志）→ 立即返回 True（**不点击**，把点击留给 claim_reward 里的步骤 1）
-      - 超时 → 返回 False
-    （注：两步点击"领取成功→领取奖励"在 claim_reward 里组成完整链路，这样不会出现重复点击。）
+    支持两种广告类型：
+      1) 视频广告：倒计时结束 → 右上角出现"领取成功" → 返回，交给 claim_reward 处理
+      2) 直播间广告：无倒计时，直接进入直播间 → 右上角显示"更多直播" → 
+         点击关闭按钮(×) → 关闭后右上角出现"领取成功" → 返回
+    轮询优先级：领取成功 > 更多直播(直播间需关闭) > 秒后可领奖励(仅打印日志)
     """
-    log("阶段四：等待广告倒计时结束（检测'领取成功'出现即返回，点击留给下一阶段）")
+    log("阶段四：等待广告倒计时结束（支持视频广告 & 直播间广告）")
     from ascript.ios.system import screen_size as _ss
     w, h = _ss() or (1080, 1920)
-    # 右上角倒计时文案区域（用户实测 [742,132,1245,249] @ 1284x2778，
-    # 约为 x:58%~97%, y:4.5%~9%）
-    rect_countdown = [int(w * 0.58), int(h * 0.045), int(w * 0.97), int(h * 0.09)]
-    # 右上角"领取成功"出现区域（倒计时结束标志，同一带，y 稍放宽）
+    # 右上角"领取成功"区域（视频广告结束 或 直播间关闭后）
     rect_claim_top = [int(w * 0.55), int(h * 0.03), w, int(h * 0.14)]
+    # 右上角倒计时文案区域（仅打印日志）
+    rect_countdown = [int(w * 0.58), int(h * 0.045), int(w * 0.97), int(h * 0.09)]
+    # 直播间底部区域（检测是否为直播间广告）
+    # 用户实测 [118,1691,1170,2183] @ 1284x2778 → x:9.2%~91.1%, y:60.9%~78.6%
+    rect_live_room = [int(w * 0.092), int(h * 0.609), int(w * 0.911), int(h * 0.786)]
+    # 直播间右上角"更多直播"区域（检测是否在直播间内，需要关闭）
+    # 用户实测 [890,274,1247,403] @ 1284x2778 → x:69.4%~97.1%, y:9.9%~14.5%
+    rect_more_live = [int(w * 0.694), int(h * 0.099), int(w * 0.971), int(h * 0.145)]
+    # 直播间右上角关闭按钮(×)区域（用 FindImages 匹配模板图）
+    # 用户实测 [795,153,1284,277] @ 1284x2778 → x:61.9%~100%, y:5.5%~10%
+    rect_close_btn = [int(w * 0.619), int(h * 0.055), w, int(h * 0.10)]
 
     deadline = time.time() + timeout
     last_sec = -1
     checks = 0
+    is_live_room_logged = False
+
     while time.time() < deadline:
         checks += 1
-        # 1) 最高优先：检测"领取成功"是否出现（倒计时结束）
-        hit = paddle_find_first(r"领取成功", rect_claim_top, "倒计时结束标志")
-        if hit:
+
+        # ========== 1) 最高优先：检测"领取成功"是否出现 ==========
+        # （视频广告倒计时结束，或 直播间关闭后 都会出现）
+        hit_claim = paddle_find_first(r"领取成功", rect_claim_top, "倒计时结束标志")
+        if hit_claim:
             log(f"  检测到'领取成功'出现（轮询 {checks} 次）→ 返回，交给 claim_reward 执行两步点击")
             return True
-        # 2) 倒计时文案 → 仅打印日志，不干别的
+
+        # ========== 2) 次高优先：检测是否在直播间内（需要关闭） ==========
+        # 先快速判断是否是直播间（首次发现时打印日志）
+        if not is_live_room_logged:
+            live_check = paddle_find_first(r"直播间", rect_live_room, "直播间检测")
+            if live_check:
+                log(f"  检测到直播间广告（轮询 {checks} 次）→ 将尝试关闭直播间")
+                is_live_room_logged = True
+
+        # 检测右上角是否有"更多直播"文字（确认在直播间内，需要关闭）
+        more_live_hit = paddle_find_first(r"更多直播", rect_more_live, "直播间识别")
+        if more_live_hit:
+            log(f"  命中'更多直播' → 确认在直播间内，尝试点击关闭按钮...")
+            # 尝试用 FindImages 匹配关闭按钮模板图
+            try:
+                from ascript.ios.screen import FindImages
+                from ascript.ios.system import R
+                template_path = R.img("auto/img_zhibojian-close01.png")
+                result = FindImages.find(template_path, rect=rect_close_btn)
+                if result:
+                    cx = result.get("center_x", 0)
+                    cy = result.get("center_y", 0)
+                    conf = result.get("confidence", 0)
+                    log(f"  匹配到关闭按钮 (置信度={conf:.2f}) @ ({cx},{cy}) → 点击关闭直播间")
+                    safe_click(cx, cy, f"直播间关闭按钮(置信度={conf:.2f})")
+                    time.sleep(1.5)
+                    log(f"  已点击关闭按钮，继续等待'领取成功'出现...")
+                    continue  # 关闭后继续循环，等待领取成功出现
+                else:
+                    log(f"  未匹配到关闭按钮模板图，尝试用 OCR 兜底识别 × 关闭...")
+                    # OCR 兜底：在关闭按钮区域找 "×" 或 "✕" 或 "✖"
+                    close_hit = paddle_find_first(r"[×✕✖]", rect_close_btn, "关闭按钮OCR兜底")
+                    if close_hit:
+                        cx = close_hit.get("center_x", 0)
+                        cy = close_hit.get("center_y", 0)
+                        log(f"  OCR 兜底命中关闭符号 @ ({cx},{cy}) → 点击")
+                        safe_click(cx, cy, "关闭按钮(OCR兜底)")
+                        time.sleep(1.5)
+                        log(f"  已点击关闭按钮（OCR兜底），继续等待'领取成功'出现...")
+                        continue
+                    else:
+                        log(f"  兜底方案也未找到关闭按钮，本轮跳过")
+            except Exception as e:
+                log(f"  FindImages 匹配异常: {e}，尝试 OCR 兜底")
+                close_hit = paddle_find_first(r"[×✕✖]", rect_close_btn, "关闭按钮OCR兜底")
+                if close_hit:
+                    cx = close_hit.get("center_x", 0)
+                    cy = close_hit.get("center_y", 0)
+                    safe_click(cx, cy, "关闭按钮(OCR兜底)")
+                    time.sleep(1.5)
+                    continue
+
+        # ========== 3) 最低优先：倒计时文案 → 仅打印日志 ==========
         cd_hit = paddle_find_first(r"秒后可领奖励", rect_countdown, "倒计时")
         if cd_hit:
             text = cd_hit.get("text", "")
@@ -583,7 +647,9 @@ def wait_ad_countdown(timeout=30) -> bool:
             if sec is not None and sec != last_sec:
                 log(f"  广告倒计时中... {text}")
                 last_sec = sec
+
         time.sleep(0.8)
+
     log(f"  等待超时 ({timeout}s)，'领取成功'未出现（本轮可能没有广告可领）")
     return False
 
@@ -658,98 +724,77 @@ def claim_reward() -> int:
 
 # ============== 主流程 ==============
 
-def single_ad_cycle(cycle_idx: int) -> bool:
+def run_ad_loop() -> int:
     """
-    单轮看广告领时长完整流程。
-    已简化（用户已捋清确定链）：
-      点进入广告入口
-        → 子循环 N 次：
-            等广告倒计时(30s) → claim_reward(点领取成功 → 点领取奖励 → 肯定进入下一轮广告)
-          直到：领不动了（claim_reward 返回 0）或达到 MAX_SUB_LOOP 上限
-    返回: 是否成功完成至少 1 次领取
+    核心无限循环：用户手动进入广告后，脚本负责
+      等广告倒计时结束 → 点"领取成功" → 点"领取奖励" → 自动进入下一轮广告 → 循环
+    每次成功领取计 1 次，累计到 success_count。
+    返回累计成功次数（失败时也返回已拿到的次数）。
     """
     log("\n" + "#" * 60)
-    log(f"### 开始第 {cycle_idx} 轮广告流程 ###")
+    log("🎯 进入核心广告领取循环（无限循环，按 Ctrl+C 或停止项目即可退出）")
     log("#" * 60)
-    try:
-        # 3. 监测进广告入口。按轮次分流：
-        #    cycle_idx=1  （开屏后第1轮） → allow_mian=True ：先找"立即解锁/领取"弹窗，再找"免"字
-        #    cycle_idx>=2 （奖励领完回到播放界面） → allow_mian=False：只找"立即解锁/领取"弹窗，不再找"免"字
-        #    用户明确说明——免字只有开屏广告以后才出现，进入广告过程中不再监测免字
-        allow_mian_flag = (cycle_idx == 1)
-        if not wait_for_mian_button(timeout=60, allow_mian=allow_mian_flag):
-            if allow_mian_flag:
-                log(f"第 {cycle_idx} 轮：未等到进广告入口（免字/立即解锁都没出现），可能当日无广告名额")
-            else:
-                log(f"第 {cycle_idx} 轮：未等到'立即解锁/领取'弹窗，本次不再继续看广告")
-            dismiss_popups(max_rounds=3)
-            return False
-        # 进入广告界面后，再做一次弹窗清理（仅续费会员弹窗）
-        dismiss_popups(max_rounds=3)
+    log("   ⚠️  请在 App 上手动进入一个广告（点右上角'免'字或'立即解锁'弹窗），脚本会自动接管后续所有轮次")
+    success_count = 0
+    round_idx = 0
+    MAX_IDLE_ROUNDS = 10  # 连续 10 轮没领到，自动退出（可能当天额度用完）
+    idle_count = 0
 
-        # 4 & 5. 简单循环：等广告倒计时 → 两步领取 → 点"领取奖励"肯定进入下一轮新广告
-        #    最多 8 次嵌套（最多领取 8 次奖励），超过或失败就退出
-        MAX_SUB_LOOP = 8
-        any_success = False
-        for sub in range(1, MAX_SUB_LOOP + 1):
-            log(f"  --- 子流程 {sub}/{MAX_SUB_LOOP}: 等待广告倒计时 ---")
-            wait_ad_countdown(timeout=30)
-            dismiss_popups(max_rounds=2)
-            log(f"  --- 子流程 {sub}/{MAX_SUB_LOOP}: 两步领取奖励 ---")
-            claim_res = claim_reward()
-            if claim_res == 1:
-                log(f"  子流程 {sub}/{MAX_SUB_LOOP}: 领取成功！'领取奖励'已点击 → 进入下一轮广告倒计时")
-                any_success = True
-                # 点了"领取奖励"后用户确认肯定会进入新一轮广告 → continue 继续 wait_ad_countdown
-                continue
-            else:
-                # claim_res == 0：超时没等到"领取成功"或"领取奖励"弹窗——奖励已经领完/当天限额了
-                log(f"  子流程 {sub}/{MAX_SUB_LOOP}: 未能完成两步领取，说明奖励已领完或达到上限，退出子循环")
-                dismiss_popups(max_rounds=3)
+    while True:
+        round_idx += 1
+        log(f"\n---- 第 {round_idx} 轮广告循环 ----")
+
+        # 步骤 1：等广告倒计时结束（30s 超时）
+        got_ad = wait_ad_countdown(timeout=30)
+        if not got_ad:
+            idle_count += 1
+            log(f"  第 {round_idx} 轮：等超时，未检测到广告倒计时结束（连续 {idle_count}/{MAX_IDLE_ROUNDS} 轮无广告）")
+            if idle_count >= MAX_IDLE_ROUNDS:
+                log(f"  ⚠️  连续 {MAX_IDLE_ROUNDS} 轮没领到广告，可能当日额度已用完，自动退出循环")
                 break
-        log(f"第 {cycle_idx} 轮：最终结果 = {'成功（至少领取 1 次）' if any_success else '未检测到可领取状态'}")
-        return any_success
-    except Exception as e:
-        log(f"第 {cycle_idx} 轮流程异常: {e}")
-        traceback.print_exc()
-        return False
+            time.sleep(3)
+            continue
+
+        # 步骤 2：两步领取（点领取成功 → 点领取奖励 → 自动进下一轮广告）
+        claim_res = claim_reward()
+        if claim_res == 1:
+            success_count += 1
+            idle_count = 0
+            log(f"  ✅ 第 {round_idx} 轮领取成功！累计成功次数 = {success_count}")
+        else:
+            idle_count += 1
+            log(f"  ⚠️  第 {round_idx} 轮领取失败（连续 {idle_count}/{MAX_IDLE_ROUNDS} 轮领取失败）")
+            if idle_count >= MAX_IDLE_ROUNDS:
+                log(f"  ⚠️  连续 {MAX_IDLE_ROUNDS} 轮领取失败，自动退出循环")
+                break
+
+        # 每轮结束后短暂休息，避免过快
+        time.sleep(1)
+
+    return success_count
 
 
 def main():
-    """脚本入口主函数"""
-    log("🎵 汽水音乐自动看广告脚本启动")
-    log(f"   最大循环次数: {MAX_LOOP_COUNT}   OCR 引擎: {OCR_ENGINE}")
+    """脚本入口主函数 —— 精简版"""
+    log("🎵 汽水音乐自动看广告脚本（精简版）启动")
+    log(f"   核心功能：跳过开屏广告 → 等待用户手动进广告 → 无限循环领奖励")
     try:
-        # 0. 初始化
+        # 1. 初始化
         init_regions()
         Ocr.set_engine(OCR_ENGINE)
-        # 1. 启动 App
+        # 2. 启动 App
         if not launch_app():
             log("❌ 无法启动汽水音乐 App，脚本终止")
             return
-        # 启动后立即跳过开屏广告（高频扫描，不遗漏）
+        # 3. 跳开屏广告
         skip_splash_ad(timeout=5)
-        # 再清理一轮弹窗
-        dismiss_popups(max_rounds=5)
-        # 主循环：一轮一轮看广告
-        success_count = 0
-        for idx in range(1, MAX_LOOP_COUNT + 1):
-            result = single_ad_cycle(idx)
-            if result:
-                success_count += 1
-            # 轮次间隔 & 兜底清理
-            log(f"  当前完成: {success_count}/{idx} 轮成功")
-            dismiss_popups(max_rounds=3)
-            # 如果连续 3 轮都失败，可能当日额度用完，提示并退出
-            if idx >= 3 and success_count == 0:
-                log("⚠️  连续 3 轮未成功，可能当日广告名额已用完，脚本退出")
-                break
-            time.sleep(LOOP_INTERVAL)
-        # 结束
+        # 4. 核心循环（用户手动进广告后自动接管）
+        total = run_ad_loop()
+        # 5. 结束
         log("=" * 60)
-        log(f"✅ 脚本运行结束，共成功领取 {success_count} 次奖励")
+        log(f"✅ 脚本运行结束，共成功领取 {total} 次奖励")
         try:
-            notify(f"汽水音乐脚本完成，成功 {success_count} 次")
+            notify(f"汽水音乐精简版完成，成功 {total} 次")
         except Exception:
             pass
     except Exception as e:
