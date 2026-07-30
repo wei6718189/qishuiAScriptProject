@@ -1,4 +1,4 @@
-# AScript 自动化项目 — AI 编码规则模板
+# AScript 自动化项目 — AI 编码规则模板  
 
 > 复制到工程根目录:`.cursorrules`(Cursor)/ `CLAUDE.md` / `AGENTS.md`(Claude Code / 其他 IDE)
 > 仓库:https://github.com/ascript-cn/ascript-mcp
