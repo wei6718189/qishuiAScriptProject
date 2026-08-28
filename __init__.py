@@ -572,6 +572,9 @@ def wait_ad_countdown(timeout=30) -> bool:
     # 直播间右上角"更多直播"区域（检测是否在直播间内，需要关闭）
     # 用户实测 [890,274,1247,403] @ 1284x2778 → x:69.4%~97.1%, y:9.9%~14.5%
     rect_more_live = [int(w * 0.694), int(h * 0.099), int(w * 0.971), int(h * 0.145)]
+    # 直播间左上角"关注"按钮区域（"更多直播"未识别时的兜底判定）
+    # 用户实测 [0,139,719,296] @ 1284x2778 → x:0%~56%, y:5%~10.65%
+    rect_follow = [0, int(h * 0.05), int(w * 0.56), int(h * 0.107)]
     # 直播间右上角关闭按钮(×)区域（用 FindImages 匹配模板图）
     # 用户实测 [795,153,1284,277] @ 1284x2778 → x:61.9%~100%, y:5.5%~10%
     rect_close_btn = [int(w * 0.619), int(h * 0.055), w, int(h * 0.10)]
@@ -601,8 +604,16 @@ def wait_ad_countdown(timeout=30) -> bool:
 
         # 检测右上角是否有"更多直播"文字（确认在直播间内，需要关闭）
         more_live_hit = paddle_find_first(r"更多直播", rect_more_live, "直播间识别")
-        if more_live_hit:
-            log(f"  命中'更多直播' → 确认在直播间内，尝试点击关闭按钮...")
+        # 兜底：未识别到"更多直播"时，检测左上角"关注"按钮确认是否仍为直播间
+        follow_hit = None
+        if not more_live_hit:
+            follow_hit = paddle_find_first(r"关注", rect_follow, "关注按钮(左上角)")
+
+        if more_live_hit or follow_hit:
+            if more_live_hit:
+                log(f"  命中'更多直播' → 确认在直播间内，尝试点击关闭按钮...")
+            else:
+                log(f"  未命中'更多直播'，但左上角命中'关注' → 确认仍为直播间，尝试点击关闭按钮...")
             close_clicked = False
             
             # 优先：使用 FindImages 匹配关闭按钮模板图（如果模板存在）
