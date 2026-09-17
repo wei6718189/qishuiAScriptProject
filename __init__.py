@@ -23,8 +23,8 @@ import traceback
 from ascript.ios import action  # type: ignore
 from ascript.ios.system import R, app_start, screen_size, notify  # type: ignore
 from ascript.ios.screen import Ocr, FindImages  # type: ignore
-from ascript.ios import node
-from ascript.ios.node import Selector
+from ascript.ios import node # type: ignore
+from ascript.ios.node import Selector # type: ignore
 
 
 # ============== 全局配置 ==============
