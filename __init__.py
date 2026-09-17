@@ -625,7 +625,7 @@ def wait_ad_countdown(timeout=30) -> bool:
                         cx = result.get("center_x", 0)
                         cy = result.get("center_y", 0)
                         conf = result.get("confidence", 0)
-                        log(f"  FindImages 匹配到关闭按钮 (置信度={conf:.2f}) @ ({cx},{cy}) → 点击")
+                        log(f"  FindImages 匹配到img_zhibojian-close01关闭按钮 (置信度={conf:.2f}) @ ({cx},{cy}) → 点击")
                         safe_click(cx, cy, f"直播间关闭按钮(模板匹配,置信度={conf:.2f})")
                         time.sleep(1.5)
                         log(f"  已点击关闭按钮（模板匹配），继续等待'领取成功'出现...")
@@ -645,7 +645,36 @@ def wait_ad_countdown(timeout=30) -> bool:
                     time.sleep(1.5)
                     log(f"  已点击关闭按钮（OCR），继续等待'领取成功'出现...")
                     close_clicked = True
-            
+
+            # 最终兜底：部分直播间背景干扰图色/OCR，用控件搜索 label="关闭" 的按钮
+            # （iOS Selector 无 mode 参数；仅在前面两层都失败时才走，避免频繁 WDA dump）
+            if not close_clicked:
+                try:
+                    log(f"  使用 Selector 控件搜索兜底（label='关闭'）...")
+                    from ascript.ios.node import Selector
+                    node = Selector().label("关闭").find()
+                    if node:
+                        info = node.info or {}
+                        frame = info.get("frame", {})
+                        fx = frame.get("x", 0)
+                        fy = frame.get("y", 0)
+                        fw = frame.get("width", 0)
+                        fh = frame.get("height", 0)
+                        if fw > 0 and fh > 0:
+                            cx = int(fx + fw / 2)
+                            cy = int(fy + fh / 2)
+                            log(f"  Selector 命中'关闭'控件 @ ({cx},{cy}) → 点击")
+                            safe_click(cx, cy, "关闭按钮(Selector)")
+                            time.sleep(1.5)
+                            log(f"  已点击关闭按钮（Selector），继续等待'领取成功'出现...")
+                            close_clicked = True
+                        else:
+                            log(f"  Selector 命中'关闭'控件但 frame 无效: {info}")
+                    else:
+                        log(f"  Selector 未找到 label='关闭' 的控件")
+                except Exception as e:
+                    log(f"  Selector 控件搜索异常: {e}")
+
             if close_clicked:
                 continue  # 关闭后继续循环，等待领取成功出现
             else:
