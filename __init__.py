@@ -23,6 +23,9 @@ import traceback
 from ascript.ios import action  # type: ignore
 from ascript.ios.system import R, app_start, screen_size, notify  # type: ignore
 from ascript.ios.screen import Ocr, FindImages  # type: ignore
+from ascript.ios import node
+from ascript.ios.node import Selector
+
 
 # ============== 全局配置 ==============
 
@@ -651,25 +654,16 @@ def wait_ad_countdown(timeout=30) -> bool:
             if not close_clicked:
                 try:
                     log(f"  使用 Selector 控件搜索兜底（label='关闭'）...")
-                    from ascript.ios.node import Selector
                     node = Selector().label("关闭").find()
                     if node:
-                        info = node.info or {}
-                        frame = info.get("frame", {})
-                        fx = frame.get("x", 0)
-                        fy = frame.get("y", 0)
-                        fw = frame.get("width", 0)
-                        fh = frame.get("height", 0)
-                        if fw > 0 and fh > 0:
-                            cx = int(fx + fw / 2)
-                            cy = int(fy + fh / 2)
-                            log(f"  Selector 命中'关闭'控件 @ ({cx},{cy}) → 点击")
-                            safe_click(cx, cy, "关闭按钮(Selector)")
-                            time.sleep(1.5)
-                            log(f"  已点击关闭按钮（Selector），继续等待'领取成功'出现...")
-                            close_clicked = True
-                        else:
-                            log(f"  Selector 命中'关闭'控件但 frame 无效: {info}")
+                        # 关闭按钮坐标固定（用户实测 [1206,194,1253,239]），直接点击中心点，无需 frame 计算
+                        cx = (1206 + 1253) // 2
+                        cy = (194 + 239) // 2
+                        log(f"  Selector 命中'关闭'控件 → 点击固定坐标 ({cx},{cy})")
+                        safe_click(cx, cy, "关闭按钮(Selector,固定坐标)")
+                        time.sleep(1.5)
+                        log(f"  已点击关闭按钮（Selector），继续等待'领取成功'出现...")
+                        close_clicked = True
                     else:
                         log(f"  Selector 未找到 label='关闭' 的控件")
                 except Exception as e:
